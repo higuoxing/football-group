@@ -40,7 +40,7 @@ function buildPositions(inputs: PositionInput[], playerId: number): PlayerPositi
 
 async function seedPlayers(): Promise<void> {
   try {
-    const res = await fetch('/players.csv')
+      const res = await fetch(import.meta.env.BASE_URL + 'players.csv')
     if (!res.ok) return
     const text = await res.text()
     const lines = text.split('\n')
@@ -243,7 +243,7 @@ function splitCsvRow(line: string): string[] {
 export const reportsApi = {
   list: async (): Promise<Report[]> => {
     try {
-      const res = await fetch('/reports.csv')
+      const res = await fetch(import.meta.env.BASE_URL + 'reports.csv')
       if (!res.ok) return []
       const text = await res.text()
       const reports: Report[] = []
