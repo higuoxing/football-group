@@ -14,8 +14,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   toggle: [id: number]
-  edit: [id: number]
-  delete: [id: number]
 }>()
 
 const activeIdx = ref(0)
@@ -42,13 +40,9 @@ const ovr = computed(() => (activePos.value ? calcOvrForPos(activePos.value) : 5
 
     <!-- Info column -->
     <div class="info">
-      <!-- Top row: name + actions -->
+      <!-- Top row: name -->
       <div class="info-top">
         <div class="name">{{ player.name }}</div>
-        <div v-if="!locked" class="actions" @click.stop>
-          <button class="btn-icon btn-edit" title="编辑" @click="emit('edit', player.id)">✏️</button>
-          <button class="btn-icon btn-delete" title="删除" @click="emit('delete', player.id)">🗑️</button>
-        </div>
       </div>
 
       <!-- Position pills (clickable to switch stats) -->
@@ -129,12 +123,6 @@ const ovr = computed(() => (activePos.value ? calcOvrForPos(activePos.value) : 5
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
 }
 
 .pos-pills {

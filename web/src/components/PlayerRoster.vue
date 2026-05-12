@@ -5,11 +5,6 @@ import { useTeamStore } from '../stores/teams'
 import { POSITION_TAB_OPTIONS } from '../utils/positions'
 import PlayerCard from './PlayerCard.vue'
 
-const emit = defineEmits<{
-  openAdd: []
-  openEdit: [id: number]
-}>()
-
 const playerStore = usePlayerStore()
 const teamStore = useTeamStore()
 
@@ -34,16 +29,6 @@ const selectedLabel = computed(() =>
     ? `(${selectedCount.value}人已选，已分组锁定)`
     : `(${selectedCount.value}人已选)`,
 )
-
-async function handleDelete(id: number) {
-  if (!confirm('确定要删除该球员吗？')) return
-  try {
-    await playerStore.remove(id)
-    teamStore.selectedIdList.splice(teamStore.selectedIdList.indexOf(id), 1)
-  } catch (e) {
-    alert('删除失败：' + (e as Error).message)
-  }
-}
 
 function handleRandomize() {
   if (teamStore.selectedIdList.length < 2) {
@@ -74,7 +59,6 @@ function handleRandomize() {
       <button class="btn btn-warning" @click="teamStore.clearSelection()">清空</button>
       <button class="btn btn-success" @click="handleRandomize">🎲 随机分组</button>
       <button class="btn btn-danger" @click="teamStore.reset()">重置状态</button>
-      <button class="btn btn-primary" @click="emit('openAdd')">➕ 添加球员</button>
     </div>
 
     <div v-if="playerStore.loading" class="empty-state">加载中...</div>
@@ -91,8 +75,6 @@ function handleRandomize() {
         :selected="teamStore.selectedIds.has(player.id)"
         :locked="teamStore.isGrouped"
         @toggle="teamStore.toggleSelect"
-        @edit="emit('openEdit', $event)"
-        @delete="handleDelete"
       />
     </div>
   </div>

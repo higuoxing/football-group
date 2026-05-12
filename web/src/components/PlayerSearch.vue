@@ -5,8 +5,6 @@ import { useTeamStore } from '../stores/teams'
 import { posLabel, posClass } from '../utils/positions'
 import PlayerAvatar from './PlayerAvatar.vue'
 
-const emit = defineEmits<{ edit: [id: number] }>()
-
 const playerStore = usePlayerStore()
 const teamStore = useTeamStore()
 
@@ -79,11 +77,10 @@ const detail = computed(() =>
           &nbsp;|&nbsp;
           状态: {{ teamStore.selectedIds.has(detail.id) ? '✅ 已报名' : '❌ 未报名' }}
         </p>
-        <div style="margin-top: 10px; display: flex; gap: 8px">
+        <div style="margin-top: 10px">
           <button class="btn btn-primary" @click="teamStore.toggleSelect(detail.id)">
             {{ teamStore.selectedIds.has(detail.id) ? '取消报名' : '立即报名' }}
           </button>
-          <button class="btn btn-warning" @click="emit('edit', detail.id)">编辑</button>
         </div>
       </div>
     </div>

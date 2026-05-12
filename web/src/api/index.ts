@@ -1,16 +1,65 @@
-import type { Player, PlayerPosition, PositionInput, Game, GameDetail, CreateGamePayload, Report } from '../types'
-import { load, save, nextId, isFirstRun } from '../lib/storage'
+import type { Player, PlayerPosition, Game, GameDetail, CreateGamePayload, Report } from '../types'
+import { load, save, nextId } from '../lib/storage'
 
 // ─────────────────────────────────────────────────
-// Internal helpers
+// Players — read-only, sourced from players.csv
 // ─────────────────────────────────────────────────
 
-function getPlayers(): Player[] {
-  return load<Player[]>('players', [])
+async function fetchPlayersFromCsv(): Promise<Player[]> {
+  const res = await fetch(import.meta.env.BASE_URL + 'players.csv')
+  if (!res.ok) return []
+  const text = await res.text()
+
+  const players: Player[] = []
+  const nameIndex = new Map<string, number>()
+
+  for (let i = 1; i < text.split('\n').length; i++) {
+    const line = text.split('\n')[i].trim()
+    if (!line) continue
+
+    const f = line.split(',')
+    if (f.length < 8) continue
+
+    const name     = f[0].trim()
+    const position = f[1].trim() as PlayerPosition['position']
+    const pac = parseInt(f[2]) || 50
+    const sho = parseInt(f[3]) || 50
+    const pas = parseInt(f[4]) || 50
+    const dri = parseInt(f[5]) || 50
+    const def = parseInt(f[6]) || 50
+    const phy = parseInt(f[7]) || 50
+
+    if (nameIndex.has(name)) {
+      const idx = nameIndex.get(name)!
+      const p = players[idx]
+      p.positions.push({
+        id: p.positions.length,
+        player_id: p.id,
+        position, pac, sho, pas, dri, def, phy,
+        sort_order: p.positions.length,
+      })
+    } else {
+      const id = nameIndex.size + 1
+      nameIndex.set(name, players.length)
+      players.push({
+        id,
+        name,
+        avatar: null,
+        positions: [{ id: 0, player_id: id, position, pac, sho, pas, dri, def, phy, sort_order: 0 }],
+      })
+    }
+  }
+
+  return players
 }
-function setPlayers(p: Player[]): void {
-  save('players', p)
+
+export const playersApi = {
+  list: fetchPlayersFromCsv,
 }
+
+// ─────────────────────────────────────────────────
+// Games — persisted in localStorage
+// ─────────────────────────────────────────────────
 
 function getGames(): GameDetail[] {
   return load<GameDetail[]>('games', [])
@@ -18,155 +67,6 @@ function getGames(): GameDetail[] {
 function setGames(g: GameDetail[]): void {
   save('games', g)
 }
-
-function buildPositions(inputs: PositionInput[], playerId: number): PlayerPosition[] {
-  return inputs.map((p, i) => ({
-    id: nextId('player_pos'),
-    player_id: playerId,
-    position: p.position,
-    pac: p.pac ?? 50,
-    sho: p.sho ?? 50,
-    pas: p.pas ?? 50,
-    dri: p.dri ?? 50,
-    def: p.def ?? 50,
-    phy: p.phy ?? 50,
-    sort_order: i,
-  }))
-}
-
-// ─────────────────────────────────────────────────
-// Seeding from players.csv on first run
-// ─────────────────────────────────────────────────
-
-async function seedPlayers(): Promise<void> {
-  try {
-      const res = await fetch(import.meta.env.BASE_URL + 'players.csv')
-    if (!res.ok) return
-    const text = await res.text()
-    const lines = text.split('\n')
-
-    const players: Player[] = []
-    const nameIndex = new Map<string, number>()
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!line) continue
-
-      const f = line.split(',')
-      if (f.length < 8) continue
-
-      const name     = f[0].trim()
-      const position = f[1].trim() as PositionInput['position']
-      const pac = parseInt(f[2]) || 50
-      const sho = parseInt(f[3]) || 50
-      const pas = parseInt(f[4]) || 50
-      const dri = parseInt(f[5]) || 50
-      const def = parseInt(f[6]) || 50
-      const phy = parseInt(f[7]) || 50
-
-      if (nameIndex.has(name)) {
-        const idx = nameIndex.get(name)!
-        players[idx].positions.push({
-          id: nextId('player_pos'),
-          player_id: players[idx].id,
-          position,
-          pac, sho, pas, dri, def, phy,
-          sort_order: players[idx].positions.length,
-        })
-      } else {
-        const id = nextId('player')
-        const player: Player = {
-          id,
-          name,
-          avatar: null,
-          positions: [{
-            id: nextId('player_pos'),
-            player_id: id,
-            position,
-            pac, sho, pas, dri, def, phy,
-            sort_order: 0,
-          }],
-        }
-        nameIndex.set(name, players.length)
-        players.push(player)
-      }
-    }
-
-    if (players.length > 0) setPlayers(players)
-  } catch {
-    // silently ignore; the app still works without seed data
-  }
-}
-
-// ─────────────────────────────────────────────────
-// Players API
-// ─────────────────────────────────────────────────
-
-export const playersApi = {
-  list: async (): Promise<Player[]> => {
-    if (isFirstRun('players_seeded')) {
-      await seedPlayers()
-    }
-    return getPlayers()
-  },
-
-  create: async (
-    name: string,
-    positions: PositionInput[],
-    avatar: string | null = null,
-  ): Promise<Player> => {
-    const players = getPlayers()
-    const id = nextId('player')
-    const player: Player = {
-      id,
-      name,
-      avatar,
-      positions: buildPositions(positions, id),
-    }
-    players.push(player)
-    setPlayers(players)
-    return player
-  },
-
-  update: async (
-    id: number,
-    name: string,
-    positions: PositionInput[],
-    avatar?: string | null,
-  ): Promise<Player> => {
-    const players = getPlayers()
-    const idx = players.findIndex((p) => p.id === id)
-    if (idx === -1) throw new Error(`Player ${id} not found`)
-
-    const updated: Player = {
-      ...players[idx],
-      name,
-      avatar: avatar !== undefined ? avatar : players[idx].avatar,
-      positions: buildPositions(positions, id),
-    }
-    players[idx] = updated
-    setPlayers(players)
-    return updated
-  },
-
-  delete: async (id: number): Promise<null> => {
-    setPlayers(getPlayers().filter((p) => p.id !== id))
-    // Nullify player_id in any game records (mirror ON DELETE SET NULL)
-    setGames(
-      getGames().map((g) => ({
-        ...g,
-        players: g.players.map((gp) =>
-          gp.player_id === id ? { ...gp, player_id: null } : gp,
-        ),
-      })),
-    )
-    return null
-  },
-}
-
-// ─────────────────────────────────────────────────
-// Games API
-// ─────────────────────────────────────────────────
 
 export const gamesApi = {
   list: async (): Promise<Game[]> =>
@@ -217,10 +117,9 @@ export const gamesApi = {
 }
 
 // ─────────────────────────────────────────────────
-// Reports API — reads /reports.csv (static file in public/)
+// Reports — read-only, sourced from reports.csv
 // ─────────────────────────────────────────────────
 
-/** Minimal CSV splitter that respects double-quoted fields. */
 function splitCsvRow(line: string): string[] {
   const fields: string[] = []
   let cur = ''
