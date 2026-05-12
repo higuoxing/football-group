@@ -54,7 +54,8 @@ const detail = computed(() =>
           class="search-result-item"
           @mousedown.prevent="selectResult(p.id)"
         >
-          <strong>{{ p.name }}</strong> — {{ posLabel(p.position) }}
+          <strong>{{ p.name }}</strong>
+          — {{ p.positions.map((x) => posLabel(x.position)).join(' / ') }}
           {{ teamStore.selectedIds.has(p.id) ? ' ✅' : '' }}
         </div>
         <div v-if="query.trim() && results.length === 0" class="search-result-item">
@@ -69,9 +70,12 @@ const detail = computed(() =>
         <h3>{{ detail.name }}</h3>
         <p>
           位置:
-          <span :class="['position-tag', posClass(detail.position)]">
-            {{ posLabel(detail.position) }}
-          </span>
+          <span
+            v-for="(pos, i) in detail.positions"
+            :key="i"
+            :class="['position-tag', posClass(pos.position)]"
+            style="margin-right: 4px"
+          >{{ posLabel(pos.position) }}</span>
           &nbsp;|&nbsp;
           状态: {{ teamStore.selectedIds.has(detail.id) ? '✅ 已报名' : '❌ 未报名' }}
         </p>

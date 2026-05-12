@@ -3,8 +3,21 @@ export const POSITION_LABELS: Record<string, string> = {
   mf: '中场',
   df: '后卫',
   gk: '守门员',
-  all: '多面手',
-  none: '无',
+}
+
+export const POSITION_OPTIONS = [
+  { value: 'fw', label: '前锋' },
+  { value: 'mf', label: '中场' },
+  { value: 'df', label: '后卫' },
+  { value: 'gk', label: '守门员' },
+] as const
+
+// Short labels for compact tabs
+export const POSITION_SHORT: Record<string, string> = {
+  fw: '前锋',
+  mf: '中场',
+  df: '后卫',
+  gk: 'GK',
 }
 
 export const POSITION_TAB_OPTIONS = [
@@ -13,11 +26,11 @@ export const POSITION_TAB_OPTIONS = [
   { key: 'mf', label: '中场' },
   { key: 'df', label: '后卫' },
   { key: 'gk', label: '守门员' },
-  { key: 'allpos', label: '多面手' },
+  { key: 'multi', label: '多位置' },
 ]
 
 export function posLabel(pos: string): string {
-  return POSITION_LABELS[pos] ?? '无'
+  return POSITION_LABELS[pos] ?? pos
 }
 
 export function posClass(pos: string): string {

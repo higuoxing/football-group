@@ -3,20 +3,86 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use std::collections::HashMap;
 
 use crate::{
     error::{AppError, Result},
-    models::{CreatePlayer, Player, UpdatePlayer},
+    models::{CreatePlayer, Player, PlayerPosition, PlayerRow, PositionInput, UpdatePlayer},
     AppState,
 };
 
-const SELECT: &str =
-    "SELECT id, name, position, avatar, pac, sho, pas, dri, def, phy FROM players";
+/// Fetch a single `Player` (with all positions) by id.
+async fn fetch_player(pool: &AppState, id: i64) -> Result<Player> {
+    let row = sqlx::query_as::<_, PlayerRow>("SELECT id, name, avatar FROM players WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Player {} not found", id)))?;
+
+    let positions = sqlx::query_as::<_, PlayerPosition>(
+        "SELECT id, player_id, position, pac, sho, pas, dri, def, phy, sort_order \
+         FROM player_positions WHERE player_id = ? ORDER BY sort_order, id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(Player { id: row.id, name: row.name, avatar: row.avatar, positions })
+}
+
+/// Insert position records for a player (helper used by create/update).
+async fn insert_positions(
+    pool: &AppState,
+    player_id: i64,
+    inputs: &[PositionInput],
+) -> Result<()> {
+    for (i, p) in inputs.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO player_positions \
+             (player_id, position, pac, sho, pas, dri, def, phy, sort_order) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(player_id)
+        .bind(&p.position)
+        .bind(p.pac.unwrap_or(50))
+        .bind(p.sho.unwrap_or(50))
+        .bind(p.pas.unwrap_or(50))
+        .bind(p.dri.unwrap_or(50))
+        .bind(p.def.unwrap_or(50))
+        .bind(p.phy.unwrap_or(50))
+        .bind(i as i64)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
 
 pub async fn list_players(State(pool): State<AppState>) -> Result<Json<Vec<Player>>> {
-    let players = sqlx::query_as::<_, Player>(&format!("{SELECT} ORDER BY id"))
+    let rows = sqlx::query_as::<_, PlayerRow>("SELECT id, name, avatar FROM players ORDER BY id")
         .fetch_all(&pool)
         .await?;
+
+    let all_positions = sqlx::query_as::<_, PlayerPosition>(
+        "SELECT id, player_id, position, pac, sho, pas, dri, def, phy, sort_order \
+         FROM player_positions ORDER BY player_id, sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let mut pos_map: HashMap<i64, Vec<PlayerPosition>> = HashMap::new();
+    for p in all_positions {
+        pos_map.entry(p.player_id).or_default().push(p);
+    }
+
+    let players = rows
+        .into_iter()
+        .map(|r| Player {
+            id: r.id,
+            positions: pos_map.remove(&r.id).unwrap_or_default(),
+            name: r.name,
+            avatar: r.avatar,
+        })
+        .collect();
 
     Ok(Json(players))
 }
@@ -25,34 +91,15 @@ pub async fn create_player(
     State(pool): State<AppState>,
     Json(payload): Json<CreatePlayer>,
 ) -> Result<(StatusCode, Json<Player>)> {
-    let position = payload.position.unwrap_or_else(|| "none".to_string());
-    let pac = payload.pac.unwrap_or(50);
-    let sho = payload.sho.unwrap_or(50);
-    let pas = payload.pas.unwrap_or(50);
-    let dri = payload.dri.unwrap_or(50);
-    let def = payload.def.unwrap_or(50);
-    let phy = payload.phy.unwrap_or(50);
+    let id = sqlx::query("INSERT INTO players (name) VALUES (?)")
+        .bind(&payload.name)
+        .execute(&pool)
+        .await?
+        .last_insert_rowid();
 
-    let id = sqlx::query(
-        "INSERT INTO players (name, position, pac, sho, pas, dri, def, phy) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&payload.name)
-    .bind(&position)
-    .bind(pac)
-    .bind(sho)
-    .bind(pas)
-    .bind(dri)
-    .bind(def)
-    .bind(phy)
-    .execute(&pool)
-    .await?
-    .last_insert_rowid();
+    insert_positions(&pool, id, &payload.positions).await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(Player { id, name: payload.name, position, avatar: None, pac, sho, pas, dri, def, phy }),
-    ))
+    Ok((StatusCode::CREATED, Json(fetch_player(&pool, id).await?)))
 }
 
 pub async fn update_player(
@@ -60,38 +107,24 @@ pub async fn update_player(
     Path(id): Path<i64>,
     Json(payload): Json<UpdatePlayer>,
 ) -> Result<Json<Player>> {
-    let e = sqlx::query_as::<_, Player>(&format!("{SELECT} WHERE id = ?"))
+    let existing = fetch_player(&pool, id).await?;
+    let name = payload.name.unwrap_or(existing.name);
+
+    sqlx::query("UPDATE players SET name = ? WHERE id = ?")
+        .bind(&name)
         .bind(id)
-        .fetch_optional(&pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Player {} not found", id)))?;
+        .execute(&pool)
+        .await?;
 
-    let name = payload.name.unwrap_or(e.name);
-    let position = payload.position.unwrap_or(e.position);
-    let pac = payload.pac.unwrap_or(e.pac);
-    let sho = payload.sho.unwrap_or(e.sho);
-    let pas = payload.pas.unwrap_or(e.pas);
-    let dri = payload.dri.unwrap_or(e.dri);
-    let def = payload.def.unwrap_or(e.def);
-    let phy = payload.phy.unwrap_or(e.phy);
+    if let Some(positions) = payload.positions {
+        sqlx::query("DELETE FROM player_positions WHERE player_id = ?")
+            .bind(id)
+            .execute(&pool)
+            .await?;
+        insert_positions(&pool, id, &positions).await?;
+    }
 
-    sqlx::query(
-        "UPDATE players SET name=?, position=?, pac=?, sho=?, pas=?, dri=?, def=?, phy=? \
-         WHERE id=?",
-    )
-    .bind(&name)
-    .bind(&position)
-    .bind(pac)
-    .bind(sho)
-    .bind(pas)
-    .bind(dri)
-    .bind(def)
-    .bind(phy)
-    .bind(id)
-    .execute(&pool)
-    .await?;
-
-    Ok(Json(Player { id, name, position, avatar: e.avatar, pac, sho, pas, dri, def, phy }))
+    Ok(Json(fetch_player(&pool, id).await?))
 }
 
 pub async fn delete_player(

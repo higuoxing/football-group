@@ -14,10 +14,9 @@ const broken = ref(false)
 // Reset broken state when player avatar changes
 watch(() => props.player.avatar, () => { broken.value = false })
 
+// avatar is now a base64 data URL stored directly in the player object
 const src = computed(() =>
-  props.player.avatar && !broken.value
-    ? `/uploads/avatars/${props.player.avatar}`
-    : null,
+  props.player.avatar && !broken.value ? props.player.avatar : null,
 )
 </script>
 

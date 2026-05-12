@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import type { Player } from '../types'
 import { posLabel, posClass } from '../utils/positions'
-import { calcOvr, ovrBg } from '../utils/stats'
+import { calcOvrForPos, ovrBg } from '../utils/stats'
 import PlayerAvatar from './PlayerAvatar.vue'
 import PlayerStatsBadge from './PlayerStatsBadge.vue'
 
-defineProps<{
+const props = defineProps<{
   player: Player
   selected: boolean
   locked?: boolean
@@ -16,6 +17,10 @@ const emit = defineEmits<{
   edit: [id: number]
   delete: [id: number]
 }>()
+
+const activeIdx = ref(0)
+const activePos = computed(() => props.player.positions[activeIdx.value] ?? null)
+const ovr = computed(() => (activePos.value ? calcOvrForPos(activePos.value) : 50))
 </script>
 
 <template>
@@ -30,29 +35,37 @@ const emit = defineEmits<{
         <PlayerAvatar :player="player" :size="44" />
         <div v-if="selected" class="avatar-check">✓</div>
       </div>
-      <div class="ovr-badge" :style="{ background: ovrBg(calcOvr(player)) }">
-        {{ calcOvr(player) }}
+      <div class="ovr-badge" :style="{ background: ovrBg(ovr) }">
+        {{ ovr }}
       </div>
     </div>
 
-    <!-- Info: top row (name + position + actions), then stats -->
+    <!-- Info column -->
     <div class="info">
+      <!-- Top row: name + actions -->
       <div class="info-top">
-        <div class="info-main">
-          <div class="name">{{ player.name }}</div>
-          <div class="position">
-            <span :class="['position-tag', posClass(player.position)]">
-              {{ posLabel(player.position) }}
-            </span>
-          </div>
-        </div>
+        <div class="name">{{ player.name }}</div>
         <div v-if="!locked" class="actions" @click.stop>
           <button class="btn-icon btn-edit" title="编辑" @click="emit('edit', player.id)">✏️</button>
           <button class="btn-icon btn-delete" title="删除" @click="emit('delete', player.id)">🗑️</button>
         </div>
       </div>
 
-      <PlayerStatsBadge :player="player" />
+      <!-- Position pills (clickable to switch stats) -->
+      <div class="pos-pills" @click.stop>
+        <button
+          v-for="(pos, i) in player.positions"
+          :key="i"
+          type="button"
+          :class="['position-tag', posClass(pos.position), { active: activeIdx === i }]"
+          @click="activeIdx = i"
+        >
+          {{ posLabel(pos.position) }}
+        </button>
+      </div>
+
+      <!-- Stats for currently selected position -->
+      <PlayerStatsBadge v-if="activePos" :pos="activePos" />
     </div>
   </div>
 </template>
@@ -94,12 +107,12 @@ const emit = defineEmits<{
   text-align: center;
 }
 
-/* info column now owns the actions */
 .info {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .info-top {
@@ -109,14 +122,38 @@ const emit = defineEmits<{
   gap: 4px;
 }
 
-.info-main {
-  flex: 1;
+.name {
+  font-weight: 700;
+  font-size: 14px;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actions {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.pos-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Position tags are buttons here — override default button styles */
+.pos-pills .position-tag {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  opacity: 0.6;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.pos-pills .position-tag.active {
+  opacity: 1;
+  transform: scale(1.05);
 }
 </style>

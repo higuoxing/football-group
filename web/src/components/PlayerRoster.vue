@@ -20,9 +20,11 @@ const filteredPlayers = computed(() => {
     return [...teamStore.teamA, ...teamStore.teamB]
   }
   if (activeTab.value === 'all') return playerStore.players
-  if (activeTab.value === 'allpos')
-    return playerStore.players.filter((p) => p.position === 'all')
-  return playerStore.players.filter((p) => p.position === activeTab.value)
+  if (activeTab.value === 'multi')
+    return playerStore.players.filter((p) => p.positions.length > 1)
+  return playerStore.players.filter((p) =>
+    p.positions.some((pos) => pos.position === activeTab.value),
+  )
 })
 
 const selectedCount = computed(() => teamStore.selectedIdList.length)

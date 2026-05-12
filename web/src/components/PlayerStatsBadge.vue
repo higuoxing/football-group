@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Player } from '../types'
 import { STAT_KEYS, STAT_LABELS, statColor } from '../utils/stats'
+import type { StatKey } from '../utils/stats'
 
-const props = defineProps<{ player: Player }>()
+const props = defineProps<{
+  pos: Record<StatKey, number>
+}>()
 
-// Render as two rows of three: [PAC SHO PAS] / [DRI DEF PHY]
-const rows = computed(() => [
-  STAT_KEYS.slice(0, 3),
-  STAT_KEYS.slice(3, 6),
-])
+const rows = computed(() => [STAT_KEYS.slice(0, 3), STAT_KEYS.slice(3, 6)])
 </script>
 
 <template>
@@ -17,8 +15,8 @@ const rows = computed(() => [
     <div v-for="(row, ri) in rows" :key="ri" class="stats-row">
       <div v-for="key in row" :key="key" class="stat-cell">
         <span class="stat-lbl">{{ STAT_LABELS[key] }}</span>
-        <span class="stat-val" :style="{ color: statColor(player[key]) }">
-          {{ player[key] }}
+        <span class="stat-val" :style="{ color: statColor(pos[key]) }">
+          {{ pos[key] }}
         </span>
       </div>
     </div>

@@ -1,5 +1,6 @@
-export type Position = 'fw' | 'mf' | 'df' | 'gk' | 'all' | 'none'
+export type Position = 'fw' | 'mf' | 'df' | 'gk'
 
+/** Attribute ratings for one position. */
 export interface PlayerStats {
   pac: number
   sho: number
@@ -9,11 +10,31 @@ export interface PlayerStats {
   phy: number
 }
 
-export interface Player extends PlayerStats {
+/** One position record returned by the backend. */
+export interface PlayerPosition extends PlayerStats {
+  id: number
+  player_id: number
+  position: Position
+  sort_order: number
+}
+
+/** Input shape when creating/updating positions (id/sort_order not required). */
+export interface PositionInput extends PlayerStats {
+  position: Position
+}
+
+/** A player with all their position records. */
+export interface Player {
   id: number
   name: string
-  position: Position
   avatar: string | null
+  positions: PlayerPosition[]
+}
+
+export interface Report {
+  date: string
+  word_count: number
+  content: string
 }
 
 export interface Game {

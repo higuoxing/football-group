@@ -361,17 +361,10 @@ header p {
 
 .stat-item strong { color: var(--dark); }
 
-.team-players { list-style: none; }
-
-.team-players li {
-  padding: 10px;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.team-players {
+  list-style: none;
 }
 
-.team-players li:last-child { border-bottom: none; }
 .team-players .player-name { font-weight: 500; }
 
 /* ── Game history ── */

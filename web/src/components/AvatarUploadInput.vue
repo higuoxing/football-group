@@ -3,25 +3,27 @@ import { ref, computed } from 'vue'
 import type { Player } from '../types'
 
 const props = defineProps<{ player?: Player | null }>()
-const emit = defineEmits<{ change: [file: File | null] }>()
+// Emits a base64 data URL (or null to clear)
+const emit = defineEmits<{ change: [dataUrl: string | null] }>()
 
 const inputRef = ref<HTMLInputElement | null>(null)
-const previewUrl = ref<string | null>(
-  props.player?.avatar ? `/uploads/avatars/${props.player.avatar}` : null,
-)
+const previewUrl = ref<string | null>(props.player?.avatar ?? null)
 
 function onFileChange(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0] ?? null
-  if (file) {
-    previewUrl.value = URL.createObjectURL(file)
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const dataUrl = reader.result as string
+    previewUrl.value = dataUrl
+    emit('change', dataUrl)
   }
-  emit('change', file)
+  reader.readAsDataURL(file)
 }
 
 function clear() {
-  previewUrl.value = props.player?.avatar
-    ? `/uploads/avatars/${props.player.avatar}`
-    : null
+  previewUrl.value = props.player?.avatar ?? null
   if (inputRef.value) inputRef.value.value = ''
   emit('change', null)
 }

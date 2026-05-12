@@ -16,44 +16,7 @@ use tower_http::{
 
 pub type AppState = sqlx::SqlitePool;
 
-const DEFAULT_PLAYERS: &[(&str, &str)] = &[
-    ("C罗", "fw"),
-    ("梅西", "fw"),
-    ("姆巴佩", "fw"),
-    ("哈兰德", "fw"),
-    ("莱万", "fw"),
-    ("凯恩", "fw"),
-    ("内马尔", "fw"),
-    ("德布劳内", "mf"),
-    ("莫德里奇", "mf"),
-    ("克罗斯", "mf"),
-    ("B席", "mf"),
-    ("厄德高", "mf"),
-    ("维拉蒂", "mf"),
-    ("罗德里", "mf"),
-    ("赖斯", "mf"),
-    ("范戴克", "df"),
-    ("迪亚斯", "df"),
-    ("萨利巴", "df"),
-    ("格瓦迪奥尔", "df"),
-    ("阿劳霍", "df"),
-    ("德里赫特", "df"),
-    ("坎塞洛", "df"),
-    ("卡马文加", "all"),
-    ("楚阿梅尼", "all"),
-    ("贝林厄姆", "all"),
-    ("福登", "all"),
-    ("萨卡", "all"),
-    ("拉什福德", "fw"),
-    ("格拉利什", "mf"),
-    ("马赫雷斯", "fw"),
-    ("阿尔瓦雷斯", "fw"),
-    ("罗德里戈", "fw"),
-    ("维尼修斯", "fw"),
-    ("诺伊尔", "gk"),
-    ("库尔图瓦", "gk"),
-    ("阿利森", "gk"),
-];
+const PLAYERS_CSV: &str = "players.csv";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -77,7 +40,6 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     seed_default_players(&pool).await?;
 
-    // Ensure avatar upload directory exists
     tokio::fs::create_dir_all("uploads/avatars").await?;
 
     let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "web/dist".to_string());
@@ -105,10 +67,11 @@ async fn main() -> anyhow::Result<()> {
             "/api/games/:id",
             get(handlers::games::get_game).put(handlers::games::update_game),
         )
+        .route("/api/reports", get(handlers::reports::list_reports))
         .nest_service("/uploads", ServeDir::new("uploads"))
         .fallback_service(serve_dir)
         .layer(CorsLayer::permissive())
-        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10 MB global limit
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .with_state(pool);
 
     let port: u16 = std::env::var("PORT")
@@ -124,18 +87,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Returns (pac, sho, pas, dri, def, phy) defaults by position.
-fn default_stats(position: &str) -> (i64, i64, i64, i64, i64, i64) {
-    match position {
-        "fw"  => (78, 80, 72, 78, 35, 65),
-        "mf"  => (72, 65, 80, 75, 60, 70),
-        "df"  => (70, 45, 65, 60, 82, 78),
-        "gk"  => (60, 15, 65, 45, 83, 75),
-        "all" => (73, 70, 73, 78, 57, 68),
-        _     => (50, 50, 50, 50, 50, 50),
-    }
-}
-
+/// Seeds players from `players.csv` when the players table is empty.
+///
+/// CSV format (header required):
+///   name,position,pac,sho,pas,dri,def,phy
+///
+/// A player with multiple positions has one row per position; rows with the
+/// same `name` are grouped together, and the first row's position is primary.
 async fn seed_default_players(pool: &sqlx::SqlitePool) -> anyhow::Result<()> {
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM players")
         .fetch_one(pool)
@@ -145,24 +103,89 @@ async fn seed_default_players(pool: &sqlx::SqlitePool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    tracing::info!("Seeding {} default players", DEFAULT_PLAYERS.len());
-    for (name, position) in DEFAULT_PLAYERS {
-        let (pac, sho, pas, dri, def, phy) = default_stats(position);
-        sqlx::query(
-            "INSERT INTO players (name, position, pac, sho, pas, dri, def, phy) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    let csv = tokio::fs::read_to_string(PLAYERS_CSV).await.map_err(|e| {
+        anyhow::anyhow!(
+            "Could not read '{PLAYERS_CSV}': {e}. \
+             Place a players.csv file next to the binary."
         )
-        .bind(name)
-        .bind(position)
+    })?;
+
+    // name → player_id (insertion order preserved by processing CSV top-to-bottom)
+    let mut name_to_id: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    // name → next sort_order index
+    let mut sort_counters: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+
+    let mut players_added = 0u32;
+    let mut positions_added = 0u32;
+
+    for (line_no, line) in csv.lines().enumerate() {
+        if line_no == 0 || line.trim().is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.splitn(8, ',').collect();
+        if f.len() < 8 {
+            tracing::warn!(
+                "players.csv line {}: expected 8 fields, got {} — skipped",
+                line_no + 1,
+                f.len()
+            );
+            continue;
+        }
+        let parse = |s: &str, field: &str| -> anyhow::Result<i64> {
+            s.trim()
+                .parse::<i64>()
+                .map_err(|_| anyhow::anyhow!("line {}: invalid {field} '{s}'", line_no + 1))
+        };
+
+        let name = f[0].trim().to_string();
+        let position = f[1].trim().to_string();
+        let pac = parse(f[2], "pac")?;
+        let sho = parse(f[3], "sho")?;
+        let pas = parse(f[4], "pas")?;
+        let dri = parse(f[5], "dri")?;
+        let def = parse(f[6], "def")?;
+        let phy = parse(f[7], "phy")?;
+
+        // Create the player row on first encounter
+        let player_id = if let Some(&id) = name_to_id.get(&name) {
+            id
+        } else {
+            let id = sqlx::query("INSERT INTO players (name) VALUES (?)")
+                .bind(&name)
+                .execute(pool)
+                .await?
+                .last_insert_rowid();
+            name_to_id.insert(name.clone(), id);
+            sort_counters.insert(name.clone(), 0);
+            players_added += 1;
+            id
+        };
+
+        let sort_order = *sort_counters.get(&name).unwrap_or(&0);
+
+        sqlx::query(
+            "INSERT INTO player_positions \
+             (player_id, position, pac, sho, pas, dri, def, phy, sort_order) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(player_id)
+        .bind(&position)
         .bind(pac)
         .bind(sho)
         .bind(pas)
         .bind(dri)
         .bind(def)
         .bind(phy)
+        .bind(sort_order)
         .execute(pool)
         .await?;
+
+        *sort_counters.get_mut(&name).unwrap() += 1;
+        positions_added += 1;
     }
 
+    tracing::info!(
+        "Seeded {players_added} players ({positions_added} position entries) from {PLAYERS_CSV}"
+    );
     Ok(())
 }
